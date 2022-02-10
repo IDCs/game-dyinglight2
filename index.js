@@ -33,47 +33,98 @@ function prepareForModding(context, discovery) {
 }
 
 
-function installContent(files) {
+function installContent(api, files) {
   const rootCandidate = files.find(file => file.toLowerCase().split(path.sep).includes('ph'));
   const idx = rootCandidate !== undefined
     ? rootCandidate.toLowerCase().split(path.sep).findIndex(seg => seg === 'ph')
     : 0;
 
-  const fileInstructions = files.reduce((accum, iter) => {
-    if (!iter.endsWith(path.sep)) {
-      const destination = isPak(iter)
-        ? shortid() + PAK_EXT
-        : iter.split(path.sep).slice(idx).join(path.sep);
-      if (isPak(iter)) {
-        const pakDictIdx = accum.findIndex(attrib =>
-          (attrib.type === 'attribute') && (attrib.key === 'pakDictionary'));
-        if (pakDictIdx !== -1) {
-          accum[pakDictIdx] = {
-            ...accum[pakDictIdx],
-            [destination]: path.basename(iter),
-          }
-        } else {
-          accum.push({
-            type: 'attribute',
-            key: 'pakDictionary',
-            value: { [destination]: path.basename(iter) },
-          });
-        }
+  let hasVariants = false;
+  const pakFiles = files.reduce((accum, iter) => {
+    if (path.extname(iter) === '.pak') {
+      const exists = accum[path.basename(iter)] !== undefined;
+      if (exists) {
+        hasVariants = true;
       }
-      accum.push({
-        type: 'copy',
-        source: iter,
-        destination, 
-      });
+      accum[path.basename(iter)] = exists
+        ? accum[path.basename(iter)].concat(iter)
+        : [iter];
     }
     return accum;
-  }, []);
-  const instructions = [{ 
-    type: 'setmodtype',
-    value: 'dying-light-2-pak-merger',
-  }].concat(fileInstructions);
-  
-  return Promise.resolve({ instructions });
+  }, {});
+
+  let filtered = files;
+  const queryVariant = () => {
+    const paks = Object.keys(pakFiles).filter(key => pakFiles[key].length > 1);
+    return Promise.map(paks, pakFile => {
+        return api.showDialog('question', 'Choose Variant', {
+          text: 'This mod has several variants for "{{pak}}" - please '
+              + 'choose the variant you wish to install. (You can choose a '
+              + 'different variant by re-installing the mod)',
+          choices: pakFiles[pakFile].map((iter, idx) => ({ 
+            id: iter,
+            text: iter,
+            value: idx === 0,
+          })),
+          parameters: {
+            pak: pakFile,
+          },
+        }, [
+          { label: 'Cancel' },
+          { label: 'Confirm' },
+        ]).then(res => {
+          if (res.action === 'Confirm') {
+            const choice = Object.keys(res.input).find(choice => res.input[choice]);
+            filtered = filtered.filter(file => (path.extname(file) !== PAK_EXT)
+              || ((path.basename(file) === pakFile) && file.includes(choice))
+              || (path.basename(file) !== pakFile));
+            return Promise.resolve();
+          } else {
+            return new util.UserCanceled();
+          }
+        });
+      })
+    };
+  const generateInstructions = () => {
+    const fileInstructions = filtered.reduce((accum, iter) => {
+      if (!iter.endsWith(path.sep)) {
+        const destination = isPak(iter)
+          ? shortid() + PAK_EXT
+          : iter.split(path.sep).slice(idx).join(path.sep);
+        if (isPak(iter)) {
+          const pakDictIdx = accum.findIndex(attrib =>
+            (attrib.type === 'attribute') && (attrib.key === 'pakDictionary'));
+          if (pakDictIdx !== -1) {
+            accum[pakDictIdx] = {
+              ...accum[pakDictIdx],
+              [destination]: path.basename(iter),
+            }
+          } else {
+            accum.push({
+              type: 'attribute',
+              key: 'pakDictionary',
+              value: { [destination]: path.basename(iter) },
+            });
+          }
+        }
+        accum.push({
+          type: 'copy',
+          source: iter,
+          destination, 
+        });
+      }
+      return accum;
+    }, []);
+    const instructions = [{ 
+      type: 'setmodtype',
+      value: 'dying-light-2-pak-merger',
+    }].concat(fileInstructions);
+    return instructions;
+  }
+
+  const prom = hasVariants ? queryVariant : Promise.resolve;
+  return prom()
+    .then(() => Promise.resolve({ instructions: generateInstructions() }));
 }
 
 
@@ -97,6 +148,11 @@ function merge(api, filePath, mergeDir) {
   if (modId !== undefined) {
     const mod = state.persistent.mods[GAME_ID][modId];
     pakDict = mod.attributes.pakDictionary;
+  }
+
+  if (pakDict[path.basename(filePath)] === undefined) {
+    log('error', 'file is not present in pak dictionary', { filePath, pakDict: JSON.stringify(pakDict, undefined, 2) });
+    return Promise.resolve();
   }
   const sevenzip = new util.SevenZip();
   const destDir = path.join(mergeDir, modsPath());
@@ -175,7 +231,7 @@ function main(context) {
     },
   });
 
-  context.registerInstaller('dyinglight2-mod', 25, testSupportedContent, installContent);
+  context.registerInstaller('dyinglight2-mod', 25, testSupportedContent, (files) => installContent(context.api, files));
   context.registerModType('dying-light-2-pak-merger', 25,
     (gameId) => gameId === GAME_ID, () => {
       const state = context.api.getState();
