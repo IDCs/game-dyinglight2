@@ -88,6 +88,8 @@ function installContent(api, files) {
   const generateInstructions = () => {
     const fileInstructions = filtered.reduce((accum, iter) => {
       if (!iter.endsWith(path.sep)) {
+        iter = iter.match(/data[0-9]*.pak/) !== null
+          ? iter : 'data2.pak';
         const destination = isPak(iter)
           ? shortid() + PAK_EXT
           : iter.split(path.sep).slice(idx).join(path.sep);
@@ -176,7 +178,7 @@ function merge(api, filePath, mergeDir) {
       .catch(err => err.code === 'ENOENT')
         ? Promise.resolve()
         : Promise.reject(err))
-    .then(() => fs.moveAsync(zipFile, mergeFilePath));
+    .then(() => fs.moveAsync(zipFile, mergeFilePath, { overwrite: true }));
 }
 
 function isPak(filePath) {
