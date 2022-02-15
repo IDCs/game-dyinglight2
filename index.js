@@ -152,8 +152,9 @@ function merge(api, filePath, mergeDir) {
     pakDict = mod.attributes.pakDictionary;
   }
 
-  if (pakDict[path.basename(filePath)] === undefined) {
-    log('error', 'file is not present in pak dictionary', { filePath, pakDict: JSON.stringify(pakDict, undefined, 2) });
+  if (pakDict?.[path.basename(filePath)] === undefined) {
+    log('error', 'file is not present in pak dictionary',
+      { filePath, pakDict: pakDict !== undefined ? JSON.stringify(pakDict, undefined, 2) : 'undefined' });
     return Promise.resolve();
   }
   const sevenzip = new util.SevenZip();
