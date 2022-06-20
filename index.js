@@ -203,16 +203,19 @@ function testMerge(api, game, discovery) {
   };
 }
 
+function executable() {
+  return path.join('ph', 'work', 'bin', 'x64', 'DyingLightGame_x64_rwdi.exe')
+}
+
 function requiresLauncher(gamePath) {
-  return fs.readdirAsync(gamePath)
-    .then(files => (files.find(file => file.endsWith(STEAM_DLL)) !== undefined)
-      ? Promise.resolve({ launcher: 'steam' })
-      : Promise.resolve(undefined))
-    .catch(err => Promise.reject(err));
+  const execDirRelPath = path.dirname(executable());
+  const expectedSteamDllPath = gamePath.replace(execDirRelPath, STEAM_DLL);
+  return fs.statAsync(expectedSteamDllPath)
+    .then(() => Promise.resolve({ launcher: 'steam' }))
+    .catch(err => Promise.resolve(undefined));
 }
 
 function main(context) {
-  const exe = path.join('ph', 'work', 'bin', 'x64', 'DyingLightGame_x64_rwdi.exe');
 	context.registerGame({
     id: GAME_ID,
     name: 'Dying Light 2',
@@ -222,8 +225,8 @@ function main(context) {
     requiresLauncher,
     queryModPath: () => modsPath(),
     logo: 'gameart.jpg',
-    executable: () => exe,
-    requiredFiles: [exe],
+    executable,
+    requiredFiles: [executable()],
     setup: (discovery) => prepareForModding(context, discovery),
     environment: {
       SteamAPPId: STEAMAPP_ID,
